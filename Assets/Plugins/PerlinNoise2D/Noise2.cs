@@ -4,14 +4,13 @@ namespace Plus.Noise
 {
     public class Noise2
     {
-        protected Func<float, float> smoothFunction = (x) => {
-            if (x <= 0) return 0;
-            if (x >= 1) return 1;
-            return 3f * x * x - 2f * x * x * x;
-        };
-
         public float[,] GetChunk(int globalX, int globalZ, int chunkWidth, int quadWidthInChunks, int octavesCount)
         {
+            if (quadWidthInChunks < 1 << octavesCount)
+            {
+                throw new ArgumentException($"Количество чанков(quadWidthInChunks:{quadWidthInChunks}) в Quad'e должно быть не меньше чем 2 ^ кол-ва октав, octavesCount:{octavesCount}");
+            }
+
             var result = new float[chunkWidth, chunkWidth];
             for (int octave = 0; octave <= octavesCount; octave++)
             {
@@ -46,6 +45,13 @@ namespace Plus.Noise
             return result;
         }
 
+        protected virtual float SmoothFunction(float x)
+        {
+            if (x <= 0) return 0;
+            if (x >= 1) return 1;
+            return 3f * x * x - 2f * x * x * x;
+        }
+
         private float[,] GetChunkOctave(int quadX, int quadZ, int chunkId, int chunkWidth, int quadWidthInChunks, int octaveSeed)
         {
             var result = new float[chunkWidth, chunkWidth];
@@ -66,10 +72,10 @@ namespace Plus.Noise
                     float internalZ = (chunkPositionLocal.internalZ * chunkWidth + z) / (float)(chunkWidth * quadWidthInChunks);
                     var pointPosition = new Float3(quadX + internalX, 0f, quadZ + internalZ);
 
-                    float dotLeftBottom = Float3.Dot(pointPosition - leftBottomPosition, vectors.bottomLeft);
-                    float dotRightBottom = Float3.Dot(pointPosition - rightBottomPosition, vectors.bottomRight);
-                    float dotLeftTop = Float3.Dot(pointPosition - leftTopPosition, vectors.topLeft);
-                    float dotRightTop = Float3.Dot(pointPosition - rightTopPosition, vectors.topRight);
+                    float dotLeftBottom = Float3.Dot(pointPosition - leftBottomPosition, vectors.BottomLeft);
+                    float dotRightBottom = Float3.Dot(pointPosition - rightBottomPosition, vectors.BottomRight);
+                    float dotLeftTop = Float3.Dot(pointPosition - leftTopPosition, vectors.TopLeft);
+                    float dotRightTop = Float3.Dot(pointPosition - rightTopPosition, vectors.TopRight);
 
                     float interpolationLeft, interpolationRight, interpolationFull;
                     float t, a, b;
@@ -77,19 +83,19 @@ namespace Plus.Noise
                     t = internalZ;
                     a = dotLeftBottom;
                     b = dotLeftTop;
-                    interpolationLeft = a * (1f - smoothFunction(t)) + b * smoothFunction(t);
+                    interpolationLeft = Interpolate(a, b, t);
 
                     t = internalZ;
                     a = dotRightBottom;
                     b = dotRightTop;
-                    interpolationRight = a * (1f - smoothFunction(t)) + b * smoothFunction(t);
+                    interpolationRight = Interpolate(a, b, t);
 
                     t = internalX;
                     a = interpolationLeft;
                     b = interpolationRight;
-                    interpolationFull = a * (1f - smoothFunction(t)) + b * smoothFunction(t);
+                    interpolationFull = Interpolate(a, b, t);
 
-                    result[x, z] = interpolationFull / (float)(Math.Sqrt(2) / 2f);
+                    result[x, z] = interpolationFull / (float)(Math.Sqrt(2) / 2f); // Todo: caching sqrt
                     result[x, z] = (result[x, z] + 1f) / 2f;
                 }
             }
@@ -104,6 +110,7 @@ namespace Plus.Noise
             if (x < 0 && x % quadWidth != 0) quadX -= 1;
             int quadZ = z / quadWidth;
             if (z < 0 && z % quadWidth != 0) quadZ -= 1;
+
             int internalX = x - quadX * quadWidth;
             int internalZ = z - quadZ * quadWidth;
             int chunkId = internalX / chunkWidth + (internalZ / chunkWidth) * quadWidthInChunks;
@@ -148,6 +155,11 @@ namespace Plus.Noise
             int internalX = chunkId - internalZ * quadWidthInChunks;
 
             return (internalX, internalZ);
+        }
+
+        private float Interpolate(float a, float b, float t)
+        {
+            return a * (1f - SmoothFunction(t)) + b * SmoothFunction(t);
         }
 
         private float GetRandomXXHash(int x, int z, int seed)
